@@ -1,0 +1,154 @@
+---
+title: "Configure source root, blacklist, and tree in genRojoTree"
+description: "Adjust the source root, blacklisted directories, and static tree skeleton by editing constants directly in tools/genRojoTree.js. No CLI flags required."
+---
+
+genRojoTree has no CLI flags and no external config file. All configurable values live as constants at the top of `tools/genRojoTree.js`. To change any of them you edit the script directly, then re-run `npm run build:rojo` (or let watch mode pick up the change).
+
+<Warning>
+  All configuration is **code-level** — there are no command-line flags, no `.genrojorc` file, and no environment variables. Every change requires editing `tools/genRojoTree.js` and re-running the generator.
+</Warning>
+
+## `BASE_PATH` — source root
+
+`BASE_PATH` is the directory that `walk()` starts from. By default it resolves to the `src/` folder adjacent to the `tools/` directory:
+
+```javascript genRojoTree.js
+const BASE_PATH = path.join(__dirname, "../src");
+```
+
+`__dirname` is the directory containing `genRojoTree.js` (`tools/`), so `"../src"` resolves to the project root's `src/` folder. If you keep your Luau source elsewhere, update this path:
+
+```javascript
+// Example: src lives at the repo root instead of in a subdirectory
+const BASE_PATH = path.join(__dirname, "../../my-src");
+```
+
+<Info>
+  All `$path` values written into `default.project.json` are relative to the **project root** (the directory where you run `npm run build:rojo`), not relative to `BASE_PATH`. The script computes them using `path.relative` starting from `src/`.
+</Info>
+
+## `BLACKLISTED_DIRS` — directories to exclude
+
+`BLACKLISTED_DIRS` is an array of absolute, POSIX-style paths. Any directory whose path appears in this list is skipped entirely by `walk()` — no files inside it are processed.
+
+The default blacklist excludes two directories that are wired into the static tree skeleton with fixed `$path` entries instead:
+
+```javascript genRojoTree.js
+const BLACKLISTED_DIRS = [
+  toPosix(path.join(BASE_PATH, "ui")),
+  toPosix(path.join(BASE_PATH, "startup")),
+];
+```
+
+| Blacklisted directory | Reason |
+|-----------------------|--------|
+| `src/ui` | Mapped statically as `ReplicatedStorage.UI` via `$path: "src/ui"` |
+| `src/startup` | Contains `Server.server.luau` and `Client.client.luau`, referenced directly in the static skeleton |
+
+### Adding a new blacklisted directory
+
+Append a `toPosix(path.join(BASE_PATH, "..."))` entry to the array:
+
+```javascript genRojoTree.js
+const BLACKLISTED_DIRS = [
+  toPosix(path.join(BASE_PATH, "ui")),
+  toPosix(path.join(BASE_PATH, "startup")),
+  toPosix(path.join(BASE_PATH, "generated")), // new entry
+];
+```
+
+<Tip>
+  Always use `toPosix(path.join(BASE_PATH, "..."))` rather than a hardcoded string. `toPosix` normalises path separators so the comparison works on Windows too.
+</Tip>
+
+## The static tree skeleton
+
+Before `walk()` runs, the `tree` constant is initialised with a fixed structure. This skeleton is always present in `default.project.json`, regardless of what the source walk finds:
+
+```javascript genRojoTree.js
+const tree = {
+  name: "genrojotree",
+  tree: {
+    $className: "DataModel",
+
+    ReplicatedStorage: {
+      Shared: {
+        $className: "Folder",
+        Services: { $className: "Folder" },
+        Classes:  { $className: "Folder" },
+        Modules:  { $className: "Folder" },
+      },
+      Packages: { $path: "Packages" },
+      UI:       { $path: "src/ui" },
+    },
+
+    ServerScriptService: {
+      Server:   { $path: "src/startup/Server.server.luau" },
+      Services: { $className: "Folder" },
+      Classes:  { $className: "Folder" },
+      Modules:  { $className: "Folder" },
+    },
+
+    StarterPlayer: {
+      StarterPlayerScripts: {
+        Client: { $path: "src/startup/Client.client.luau" },
+      },
+    },
+  },
+};
+```
+
+The walk populates `ReplicatedStorage.Shared.Services`, `ReplicatedStorage.Shared.Classes`, `ReplicatedStorage.Shared.Modules`, `ServerScriptService.Services`, `ServerScriptService.Classes`, and `ServerScriptService.Modules` dynamically. Everything else is hardcoded here.
+
+### Structure breakdown
+
+<Tabs>
+  <Tab title="ReplicatedStorage">
+    | Key | Type | Notes |
+    |-----|------|-------|
+    | `Shared` | Folder | Root for all dynamically discovered scripts |
+    | `Shared.Services` | Folder | Populated by the walk with service client/utils files |
+    | `Shared.Classes` | Folder | Populated by the walk with class modules |
+    | `Shared.Modules` | Folder | Populated by the walk with general modules |
+    | `Packages` | `$path: "Packages"` | Wally package directory; static |
+    | `UI` | `$path: "src/ui"` | UI source tree; excluded from walk via blacklist |
+  </Tab>
+  <Tab title="ServerScriptService">
+    | Key | Type | Notes |
+    |-----|------|-------|
+    | `Server` | `$path: "src/startup/Server.server.luau"` | Top-level server entry point; static |
+    | `Services` | Folder | Populated by the walk with service server files |
+    | `Classes` | Folder | Populated by the walk with server-side class modules |
+    | `Modules` | Folder | Populated by the walk with server-side general modules |
+  </Tab>
+  <Tab title="StarterPlayer">
+    | Key | Type | Notes |
+    |-----|------|-------|
+    | `StarterPlayerScripts.Client` | `$path: "src/startup/Client.client.luau"` | Client entry point; static |
+
+    `StarterPlayer` is fully static — no part of it is populated by the walk.
+  </Tab>
+</Tabs>
+
+### Renaming the project
+
+The top-level `name` field in the skeleton sets the Rojo project name (shown in the Rojo Studio plugin and used by `rojo build`):
+
+```javascript genRojoTree.js
+const tree = {
+  name: "genrojotree",
+  // ...
+};
+```
+
+Change `"genrojotree"` to match your actual project name. This value flows directly into the `"name"` field of `default.project.json`.
+
+<CardGroup cols={2}>
+  <Card title="How it works" icon="gear" href="/usage/how-it-works">
+    Follow the full pipeline from source walk to JSON output
+  </Card>
+  <Card title="File conventions" icon="file-code" href="/usage/file-conventions">
+    Learn the naming rules that determine each file's destination and instance name
+  </Card>
+</CardGroup>

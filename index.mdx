@@ -1,133 +1,40 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
-icon: 'star'
+title: "genRojoTree: auto-generate your Rojo project files"
+description: "genRojoTree scans your Luau source tree and automatically writes default.project.json, mapping every file to the correct Roblox service location."
 ---
 
-## Setting up
+genRojoTree is a Node.js tool for Roblox developers using [Rojo](https://rojo.space). Instead of hand-editing `default.project.json` every time you add a new script, genRojoTree reads your `src/` folder and generates the file automatically — keeping your Rojo project tree in sync with your filesystem.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up genRojoTree and generate your first project file in minutes
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="How it works" icon="gear" href="/usage/how-it-works">
+    Understand how source files are mapped to Roblox service locations
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="File conventions" icon="file-code" href="/usage/file-conventions">
+    Learn the naming rules that control where your scripts are placed
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Script reference" icon="book" href="/reference/script">
+    Full reference for the genRojoTree.js script and its internals
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What genRojoTree does
 
-Everything you need to create world-class documentation.
+When you run `npm run build:rojo`, genRojoTree walks every `.luau` file under `src/`, determines where it belongs in the Roblox service tree, and writes a fresh `default.project.json`. You can also run `npm run watch:rojo` to regenerate automatically whenever files change.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Make your content agent ready
-
-Make your docs work for humans and AI agents alike.
-
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
-  </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
-  </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
-  </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Install dependencies">
+    Clone the repository and run `npm install` to install `chokidar-cli`.
+  </Step>
+  <Step title="Organize your source files">
+    Place Luau scripts under `src/services/`, `src/classes/`, or `src/modules/` following the naming conventions.
+  </Step>
+  <Step title="Generate the project file">
+    Run `npm run build:rojo` to produce `default.project.json` from your source tree.
+  </Step>
+  <Step title="Serve with Rojo">
+    Run `rojo serve` to sync your project into Roblox Studio.
+  </Step>
+</Steps>

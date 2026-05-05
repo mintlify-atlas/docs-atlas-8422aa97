@@ -1,0 +1,344 @@
+---
+title: "genRojoTree.js complete script and function reference"
+description: "Complete reference for every function, constant, and execution step in tools/genRojoTree.js, the script that generates default.project.json."
+---
+
+`tools/genRojoTree.js` is the single Node.js script that powers genRojoTree. It imports only Node's built-in `fs` and `path` modules, reads the `src/` directory tree, computes a virtual Roblox path for each `.luau` file, and writes `default.project.json` to the project root. This page documents every constant, function, and execution step in the order they appear in the source file.
+
+## Module-level constants
+
+These values are evaluated once when the module loads, before any function runs.
+
+### `BASE_PATH`
+
+```javascript genRojoTree.js
+const BASE_PATH = path.join(__dirname, "../src");
+```
+
+The absolute path to the source directory that the walk reads from. Resolved relative to the `tools/` directory that contains the script, so `BASE_PATH` always points at `<project-root>/src` regardless of the working directory from which you invoke Node.
+
+### `BLACKLISTED_DIRS`
+
+```javascript genRojoTree.js
+const BLACKLISTED_DIRS = [
+  toPosix(path.join(BASE_PATH, "ui")),
+  toPosix(path.join(BASE_PATH, "startup")),
+];
+```
+
+An array of absolute POSIX paths that `walk()` will skip entirely. The default list excludes `src/ui` and `src/startup` because those directories are wired into the project tree as static `$path` entries — they do not need to be discovered dynamically.
+
+<Note>
+  Paths are stored in POSIX format (forward slashes) so the comparison inside
+  `walk()` works correctly on both Windows and Unix hosts.
+</Note>
+
+### `initClaimedFolders`
+
+```javascript genRojoTree.js
+const initClaimedFolders = new Set();
+```
+
+A `Set` populated at runtime by the walk callback. When `init.luau` is encountered in a folder, that folder's key (e.g. `"services/ExampleService"`) is added here. Any subsequent file in the same folder is then silently skipped so its path is not double-registered in the tree.
+
+### `tree`
+
+```javascript genRojoTree.js
+const tree = {
+  name: "genrojotree",
+  tree: {
+    $className: "DataModel",
+
+    ReplicatedStorage: {
+      Shared: {
+        $className: "Folder",
+        Services: { $className: "Folder" },
+        Classes:  { $className: "Folder" },
+        Modules:  { $className: "Folder" },
+      },
+      Packages: { $path: "Packages" },
+      UI:       { $path: "src/ui" },
+    },
+
+    ServerScriptService: {
+      Server:   { $path: "src/startup/Server.server.luau" },
+      Services: { $className: "Folder" },
+      Classes:  { $className: "Folder" },
+      Modules:  { $className: "Folder" },
+    },
+
+    StarterPlayer: {
+      StarterPlayerScripts: {
+        Client: { $path: "src/startup/Client.client.luau" },
+      },
+    },
+  },
+};
+```
+
+The static JSON skeleton that is always written to `default.project.json`. The walk populates the `Services`, `Classes`, and `Modules` folders under both `ReplicatedStorage.Shared` and `ServerScriptService` dynamically. All other entries (`Server`, `Client`, `Packages`, `UI`) are fixed and are never modified by the walk.
+
+## Functions
+
+### `toPosix`
+
+```javascript genRojoTree.js
+function toPosix(p) {
+  return p.split(path.sep).join("/");
+}
+```
+
+Converts a file system path produced by Node's `path` module to a POSIX path by replacing every platform path separator with `/`. This ensures that path strings stored in constants and written into `default.project.json` use forward slashes on all operating systems.
+
+<ParamField path="p" type="string" required>
+  An OS-native path string (e.g. a value returned by `path.join()`).
+</ParamField>
+
+**Returns** `string` — the same path with all occurrences of `path.sep` replaced by `/`.
+
+---
+
+### `toPascalCase`
+
+```javascript genRojoTree.js
+function toPascalCase(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+```
+
+Capitalizes the first character of a string and leaves the rest unchanged. This is applied to folder path segments when building the `folder` array and to reserved base names when constructing compound Roblox instance names.
+
+<ParamField path="str" type="string" required>
+  Any string. Typically a folder or file base name such as `"services"` or
+  `"client"`.
+</ParamField>
+
+**Returns** `string` — the input string with its first character uppercased (e.g. `"services"` → `"Services"`, `"ExampleService"` → `"ExampleService"`).
+
+---
+
+### `getVirtualPath`
+
+```javascript genRojoTree.js
+function getVirtualPath(filepath) {
+  const relativePath = path.relative(BASE_PATH, filepath);
+  const parts = relativePath.split(path.sep);
+  const filename = path.basename(filepath, ".luau");
+  const isServer = filename.toLowerCase().includes("server");
+
+  const folderName = parts.length > 1 ? toPascalCase(parts[parts.length - 2]) : "";
+  let name;
+
+  if (filename === "init") {
+    name = folderName;
+  } else if (["server", "client", "utils", "types"].includes(filename.toLowerCase())) {
+    name = folderName + toPascalCase(filename);
+  } else {
+    name = filename;
+  }
+
+  return {
+    isInit: filename === "init",
+    target: isServer ? "ServerScriptService" : "ReplicatedStorage",
+    folder: parts.slice(0, -1).map(toPascalCase),
+    name,
+    file: filename === "init"
+      ? toPosix(path.join("src", ...parts.slice(0, -1)))
+      : toPosix(path.join("src", ...parts)),
+  };
+}
+```
+
+Maps an absolute `.luau` file path to its virtual Roblox location. This is the core routing function — every decision about where a file ends up in the generated project JSON flows through here.
+
+<ParamField path="filepath" type="string" required>
+  The absolute path to a `.luau` file inside `src/`, as passed by `walk()`.
+</ParamField>
+
+**Returns** an object with the following fields:
+
+<ResponseField name="isInit" type="boolean" required>
+  `true` when the file's base name (without extension) is exactly `"init"`.
+  Triggers the folder-promotion branch in the walk callback.
+</ResponseField>
+
+<ResponseField name="target" type="string" required>
+  Either `"ServerScriptService"` or `"ReplicatedStorage"`. Set to
+  `"ServerScriptService"` when the base name (lowercased) contains the
+  substring `"server"`; otherwise `"ReplicatedStorage"`.
+</ResponseField>
+
+<ResponseField name="folder" type="string[]" required>
+  An array of PascalCased path segments between `src/` and the file itself.
+  For `src/services/ExampleService/Server.luau` this is
+  `["Services", "ExampleService"]`. Used by the walk callback to traverse or
+  create intermediate folder nodes in the tree.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  The Roblox instance name that will be used as the key in the project JSON.
+  Derived by one of three rules:
+
+  - **`init`** — the PascalCased name of the parent folder.
+  - **Reserved base name** (`server`, `client`, `utils`, `types`) — the parent
+    folder name concatenated with the PascalCased base name (e.g.
+    `"ExampleServiceServer"`).
+  - **Everything else** — the base name verbatim.
+</ResponseField>
+
+<ResponseField name="file" type="string" required>
+  The POSIX-format relative path written as the `$path` value in the project
+  JSON. For `init.luau` this is the parent folder path (e.g.
+  `"src/services/ExampleService"`); for all other files it is the path to the
+  file itself (e.g. `"src/services/ExampleService/Server.luau"`).
+</ResponseField>
+
+---
+
+### `walk`
+
+```javascript genRojoTree.js
+function walk(dir, callback) {
+  if (BLACKLISTED_DIRS.includes(toPosix(dir))) return;
+
+  fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walk(full, callback);
+    } else if (entry.isFile() && entry.name.endsWith(".luau")) {
+      callback(full);
+    }
+  });
+}
+```
+
+Recursively traverses a directory tree and invokes a callback for every `.luau` file found. Directories listed in `BLACKLISTED_DIRS` are skipped before their contents are read. Non-`.luau` files are ignored silently.
+
+<ParamField path="dir" type="string" required>
+  The absolute path to the directory to scan. The initial call passes
+  `BASE_PATH`; recursive calls pass the absolute path of each discovered
+  subdirectory.
+</ParamField>
+
+<ParamField path="callback" type="(filepath: string) => void" required>
+  A function invoked with the absolute path of each `.luau` file that is
+  found. The main execution block passes a callback that calls
+  `getVirtualPath()` and inserts the result into the `tree` object.
+</ParamField>
+
+**Returns** `void`.
+
+## Main execution flow
+
+After all constants and functions are defined, the script runs synchronously from top to bottom:
+
+<Steps>
+  <Step title="walk() is invoked on BASE_PATH">
+    ```javascript genRojoTree.js
+    walk(BASE_PATH, (filepath) => {
+      const { target, folder, name, file, isInit } = getVirtualPath(filepath);
+      const root = target === "ServerScriptService" ? serverRoot : sharedRoot;
+      const fullFolderKey = folder.join("/");
+      // ...
+    });
+    ```
+
+    `walk()` reads `src/` recursively. For each `.luau` file it finds, the
+    callback calls `getVirtualPath()` and selects the correct root node
+    (`serverRoot` or `sharedRoot`) based on the `target` value.
+  </Step>
+
+  <Step title="init.luau promotes its parent folder">
+    If `isInit` is `true`, the callback navigates to the grandparent node,
+    writes `{ $path: file }` under the parent folder name, records the folder
+    key in `initClaimedFolders`, and returns early.
+
+    ```javascript genRojoTree.js
+    if (isInit) {
+      const parent = folder.slice(0, -1).reduce((acc, part) => {
+        if (!acc[part]) acc[part] = { $className: "Folder" };
+        return acc[part];
+      }, root);
+
+      parent[name] = { $path: file };
+      initClaimedFolders.add(fullFolderKey);
+      return;
+    }
+    ```
+  </Step>
+
+  <Step title="Claimed folders are skipped">
+    If the file's `fullFolderKey` is already in `initClaimedFolders`, the
+    callback returns without writing anything. This prevents sibling files from
+    creating duplicate entries alongside a promoted `init.luau`.
+
+    ```javascript genRojoTree.js
+    if (initClaimedFolders.has(fullFolderKey)) return;
+    ```
+  </Step>
+
+  <Step title="Folder nodes are created on demand, then the file is inserted">
+    For all other files, the callback walks the `folder` array, creating
+    `{ $className: "Folder" }` nodes for any segment that does not yet exist,
+    then attaches `{ $path: file }` at the leaf.
+
+    ```javascript genRojoTree.js
+    let current = root;
+    for (const part of folder) {
+      if (!current[part]) current[part] = { $className: "Folder" };
+      current = current[part];
+    }
+
+    current[name] = { $path: file };
+    ```
+  </Step>
+
+  <Step title="The completed tree is written to disk">
+    After `walk()` returns, the fully populated `tree` object is serialized
+    with two-space indentation and written to `default.project.json` in the
+    current working directory.
+
+    ```javascript genRojoTree.js
+    fs.writeFileSync("default.project.json", JSON.stringify(tree, null, 2));
+    console.log("✅ default.project.json generated.");
+    ```
+
+    The file is always overwritten from scratch — there is no incremental
+    update or merge with the previous output.
+  </Step>
+</Steps>
+
+## npm scripts
+
+The `package.json` exposes two scripts for running the generator.
+
+### `build:rojo`
+
+```bash
+npm run build:rojo
+```
+
+Runs `node tools/genRojoTree.js` once and exits. Use this for a one-shot regeneration after adding or renaming files.
+
+### `watch:rojo`
+
+```bash
+npm run watch:rojo
+```
+
+Runs `chokidar "src/**/*" -c "npm run build:rojo"`, which watches the entire `src/` directory tree for any change and automatically re-runs `build:rojo` on every file system event. Requires `chokidar-cli` (listed as a dev dependency).
+
+<Tip>
+  Run `watch:rojo` in a dedicated terminal while developing. Every time you
+  add, rename, or delete a `.luau` file in `src/`, the project JSON is
+  regenerated immediately without any manual step.
+</Tip>
+
+<CardGroup cols={2}>
+  <Card title="How it works" icon="gear" href="/usage/how-it-works">
+    Follow the full pipeline from source walk to JSON output
+  </Card>
+  <Card title="Generated project file" icon="file-code" href="/reference/rojo-project">
+    Understand the structure of the default.project.json output
+  </Card>
+</CardGroup>

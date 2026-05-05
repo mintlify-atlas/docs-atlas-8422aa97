@@ -1,0 +1,153 @@
+---
+title: "genRojoTree service pattern: Server, Client, and Utils files"
+description: "How genRojoTree organises game logic into per-service folders with Server, Client, and Utils splits, and how each file is named and placed in the tree."
+---
+
+genRojoTree is built around a single organisational convention: every piece of game logic lives in its own named service folder under `src/services/`, and each service is split into at most three files — one for server logic, one for client logic, and one for shared utilities. This keeps code boundaries explicit and makes it easy to see at a glance which code runs where.
+
+## Folder structure
+
+Each service is a sub-folder of `src/services/`. The folder name becomes the base of every module name generated for that service.
+
+```bash
+src/services/
+└── ExampleService/
+    ├── Server.luau   # Server-side logic
+    ├── Client.luau   # Client-side logic
+    └── Utils.luau    # Shared utilities (accessible from both sides)
+```
+
+You can add as many service folders as your project needs. genRojoTree discovers them automatically during the directory walk.
+
+## File naming and module names
+
+The tool combines the PascalCase folder name with the PascalCase file stem to produce the final module name. A file named `Server.luau` inside `ExampleService/` becomes `ExampleServiceServer`.
+
+| Source file | Module name | Roblox location |
+|---|---|---|
+| `src/services/ExampleService/Server.luau` | `ExampleServiceServer` | `ServerScriptService.Services.ExampleService` |
+| `src/services/ExampleService/Client.luau` | `ExampleServiceClient` | `ReplicatedStorage.Shared.Services.ExampleService` |
+| `src/services/ExampleService/Utils.luau` | `ExampleServiceUtils` | `ReplicatedStorage.Shared.Services.ExampleService` |
+
+The routing rule is straightforward: any file whose name contains `server` goes to `ServerScriptService`; everything else goes to `ReplicatedStorage.Shared`.
+
+## The generated project tree
+
+Running genRojoTree with the example service produces the following entries in `default.project.json`:
+
+```json
+"ServerScriptService": {
+  "Services": {
+    "ExampleService": {
+      "ExampleServiceServer": {
+        "$path": "src/services/ExampleService/Server.luau"
+      }
+    }
+  }
+},
+"ReplicatedStorage": {
+  "Shared": {
+    "Services": {
+      "ExampleService": {
+        "ExampleServiceClient": {
+          "$path": "src/services/ExampleService/Client.luau"
+        },
+        "ExampleServiceUtils": {
+          "$path": "src/services/ExampleService/Utils.luau"
+        }
+      }
+    }
+  }
+}
+```
+
+## The ExampleService files
+
+The repository ships with a working example service you can use as a starting point.
+
+<Tabs>
+  <Tab title="Server.luau">
+    ```luau
+    local ExampleServiceServer = {}
+
+    function ExampleServiceServer.init(self: ExampleServiceServer)
+      print("hi from ExampleServiceServer!")
+    end
+
+    export type ExampleServiceServer = typeof(ExampleServiceServer) & {}
+
+    return ExampleServiceServer
+    ```
+  </Tab>
+  <Tab title="Client.luau">
+    ```luau
+    local ExampleServiceClient = {}
+
+    return ExampleServiceClient
+    ```
+  </Tab>
+  <Tab title="Utils.luau">
+    ```luau
+    -- Empty by default; add shared helper functions here
+    ```
+
+    The example `Utils.luau` ships empty. Add any helper functions or constants that both the server and client modules need to share.
+  </Tab>
+</Tabs>
+
+## The :init() convention
+
+Server modules follow an `:init()` convention. The startup script calls `:init()` on each service once, passing `self` as the receiver. This gives you a single, predictable entry point for bootstrapping server-side state — setting up remote events, binding callbacks, loading data, and so on.
+
+```luau
+-- src/startup/Server.server.luau
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local ExampleServiceServer = require(
+  ServerScriptService.Services.ExampleService.ExampleServiceServer
+)
+
+ExampleServiceServer:init()
+```
+
+The `:init()` method receives the module table as `self`, so you can call other methods on the same module from within `init` without needing to forward-declare them.
+
+## The startup scripts as orchestrators
+
+`Server.server.luau` and `Client.client.luau` act as orchestrators. They require every service and call `:init()` in the order you choose. Because the startup scripts are hardcoded in the static tree and excluded from auto-generation, they are the one place where you manually wire up the execution order of your services.
+
+<Note>
+  `src/startup/` is blacklisted from the directory walk. genRojoTree will never
+  auto-generate entries for files inside it. See
+  [Source layout](/structure/src-layout) for details on the static tree.
+</Note>
+
+## Using init.luau for services with sub-modules
+
+If a service grows beyond three files and needs its own sub-modules, replace the flat files with an `init.luau` at the folder root.
+
+<Tip>
+  When genRojoTree finds an `init.luau` inside a folder, it promotes the entire
+  folder to a single `$path` entry and skips processing any sibling files. Rojo
+  then syncs the full subtree directly. This lets a service own an arbitrary
+  internal file structure without any extra configuration.
+
+  ```bash
+  src/services/
+  └── MyService/
+      ├── init.luau        # Becomes MyService module; claims the folder
+      ├── Helpers.luau     # Internal — managed by Rojo, not genRojoTree
+      └── Constants.luau   # Internal — managed by Rojo, not genRojoTree
+  ```
+</Tip>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="File conventions" icon="file-code" href="/usage/file-conventions">
+    Naming rules for Server, Client, Utils, Types, and init files.
+  </Card>
+  <Card title="Script reference" icon="scroll" href="/reference/script">
+    Full reference for how genRojoTree processes and routes each file type.
+  </Card>
+</CardGroup>

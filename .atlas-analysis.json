@@ -1,0 +1,45 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "genRojoTree",
+  "projectDescription": "A Node.js tool that automatically generates a Rojo project file (default.project.json) by scanning your Luau source tree and mapping files to their correct Roblox service locations.",
+  "theme": "palm",
+  "primaryColor": "#e33934",
+  "lightColor": null,
+  "darkColor": null,
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": ["introduction", "quickstart"]
+      },
+      {
+        "group": "Usage",
+        "pages": ["usage/how-it-works", "usage/file-conventions", "usage/configuration"]
+      },
+      {
+        "group": "Project Structure",
+        "pages": ["structure/src-layout", "structure/services-pattern"]
+      },
+      {
+        "group": "Reference",
+        "pages": ["reference/script", "reference/rojo-project"]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Auto-generates default.project.json from your Luau source tree",
+    "Maps files to ServerScriptService or ReplicatedStorage based on naming conventions",
+    "Handles init.luau promotion (folder-as-module pattern)",
+    "Watch mode via chokidar for continuous regeneration on file changes",
+    "Supports Server/Client/Utils service split pattern",
+    "Blacklist support to exclude directories from tree generation"
+  ],
+  "publicApiSurface": [
+    "npm run build:rojo — generate default.project.json once",
+    "npm run watch:rojo — watch src/ and regenerate on changes",
+    "node tools/genRojoTree.js — direct script invocation",
+    "BLACKLISTED_DIRS — array of directories to exclude from tree",
+    "getVirtualPath(filepath) — maps a file path to its Roblox virtual location",
+    "walk(dir, callback) — recursively walks .luau files"
+  ]
+}

@@ -1,81 +1,163 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
-icon: 'rocket'
+title: "Get started with genRojoTree from clone to rojo serve"
+description: "Clone the repo, install Node and Rojo dependencies, run the generator, and start syncing your Roblox project with Rojo in one workflow."
 ---
 
-## Get started in three steps
+This guide walks you through setting up genRojoTree from scratch. By the end you will have generated a `default.project.json` from your source tree and started a live Rojo sync session with Roblox Studio.
 
-Get your documentation site running locally and make your first customization.
+<Steps>
 
-### Step 1: Set up your local environment
+  <Step title="Clone the repository">
+    Clone the genRojoTree repository and open it in your terminal.
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    git clone https://github.com/leifstout/genRojoTree.git
+    cd genRojoTree
+    ```
+  </Step>
 
-### Step 2: Deploy your changes
+  <Step title="Install Node.js dependencies">
+    genRojoTree uses [`chokidar-cli`](https://github.com/open-cli-tools/chokidar-cli) for watch mode. Install it with npm.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    npm install
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    This installs the single dev dependency listed in `package.json`:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```json package.json
+    {
+      "devDependencies": {
+        "chokidar-cli": "^3.0.0"
+      }
+    }
+    ```
+  </Step>
 
-### Step 3: Go live
+  <Step title="Install Rojo via Rokit">
+    The project uses [Rokit](https://github.com/rojo-rbx/rokit) to manage the Roblox toolchain. Run `rokit install` to pull down the pinned versions of Rojo and Wally.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```bash
+    rokit install
+    ```
+
+    The pinned versions from `rokit.toml`:
+
+    ```toml rokit.toml
+    [tools]
+    rojo = "rojo-rbx/rojo@7.5.1"
+    wally = "UpliftGames/wally@0.3.2"
+    ```
+
+    <Info>
+      If you do not have Rokit installed, follow the [Rokit setup guide](https://github.com/rojo-rbx/rokit) before continuing.
+    </Info>
+  </Step>
+
+  <Step title="Generate the Rojo project file">
+    Run the build script to walk your `src/` folder and generate `default.project.json`.
+
+    ```bash
+    npm run build:rojo
+    ```
+
+    Under the hood this runs:
+
+    ```bash
+    node tools/genRojoTree.js
+    ```
+
+    You should see:
+
+    ```
+    ✅ default.project.json generated.
+    ```
+  </Step>
+
+  <Step title="Inspect the generated file">
+    Open `default.project.json` to verify the output. With the example `src/services/ExampleService/` layout included in the repo, it will look like this:
+
+    ```json default.project.json
+    {
+      "name": "genrojotree",
+      "tree": {
+        "$className": "DataModel",
+        "ReplicatedStorage": {
+          "Shared": {
+            "$className": "Folder",
+            "Services": {
+              "$className": "Folder",
+              "ExampleService": {
+                "$className": "Folder",
+                "ExampleServiceClient": {
+                  "$path": "src/services/ExampleService/Client.luau"
+                },
+                "ExampleServiceUtils": {
+                  "$path": "src/services/ExampleService/Utils.luau"
+                }
+              }
+            },
+            "Classes": { "$className": "Folder" },
+            "Modules": { "$className": "Folder" }
+          },
+          "Packages": { "$path": "Packages" },
+          "UI": { "$path": "src/ui" }
+        },
+        "ServerScriptService": {
+          "Server": { "$path": "src/startup/Server.server.luau" },
+          "Services": {
+            "$className": "Folder",
+            "ExampleService": {
+              "$className": "Folder",
+              "ExampleServiceServer": {
+                "$path": "src/services/ExampleService/Server.luau"
+              }
+            }
+          },
+          "Classes": { "$className": "Folder" },
+          "Modules": { "$className": "Folder" }
+        },
+        "StarterPlayer": {
+          "StarterPlayerScripts": {
+            "Client": { "$path": "src/startup/Client.client.luau" }
+          }
+        }
+      }
+    }
+    ```
+
+    Notice how files with `server` in their name (e.g. `Server.luau`) are routed to `ServerScriptService`, while `Client.luau` and `Utils.luau` go to `ReplicatedStorage.Shared`.
+  </Step>
+
+  <Step title="Start Rojo">
+    With `default.project.json` in place, start the Rojo dev server to sync your project into Roblox Studio.
+
+    ```bash
+    rojo serve
+    ```
+
+    Then open Roblox Studio, install the Rojo Studio plugin from the Roblox plugin marketplace, and connect to the running server.
+  </Step>
+
+</Steps>
+
+<Tip>
+  During active development, use watch mode instead of running `npm run build:rojo` manually. It regenerates `default.project.json` automatically every time you add, remove, or rename a file under `src/`.
+
+  ```bash
+  npm run watch:rojo
+  ```
+
+  This runs `chokidar "src/**/*" -c "npm run build:rojo"`, so Rojo always has an up-to-date project file without any extra steps.
+</Tip>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="How it works" icon="gear" href="/usage/how-it-works">
+    Understand the source walk, virtual path resolution, and tree construction
+  </Card>
+  <Card title="File conventions" icon="file-code" href="/usage/file-conventions">
+    Learn the naming rules that control where your scripts are placed
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

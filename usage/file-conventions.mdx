@@ -1,0 +1,129 @@
+---
+title: "genRojoTree file conventions: Server, Client, Utils, Types"
+description: "Learn how genRojoTree uses file base names — Server, Client, Utils, Types, init — to derive Roblox instance names and route scripts to the correct service."
+---
+
+genRojoTree does not use a configuration file to list every script — it infers where each `.luau` file belongs from its name alone. A small set of reserved base names (`Server`, `Client`, `Utils`, `Types`, and `init`) trigger specific mapping rules; everything else follows a simple fallback. Knowing these rules lets you predict the generated `default.project.json` entry for any file before you run the script.
+
+## How names are resolved
+
+`getVirtualPath()` strips the `.luau` extension from the file name, checks it against the reserved list, and builds the Roblox instance name from the result. PascalCase conversion via `toPascalCase()` is applied to the parent folder segment whenever it is combined with a reserved base name.
+
+<Tabs>
+  <Tab title="Reserved names">
+    When the base name matches one of the four reserved words (case-insensitive), the Roblox instance name is the **parent folder name + the reserved name** (both PascalCased).
+
+    | File name | Parent folder | Roblox instance name | Destination |
+    |-----------|--------------|----------------------|-------------|
+    | `Server.luau` | `ExampleService` | `ExampleServiceServer` | `ServerScriptService` |
+    | `Client.luau` | `ExampleService` | `ExampleServiceClient` | `ReplicatedStorage.Shared` |
+    | `Utils.luau` | `ExampleService` | `ExampleServiceUtils` | `ReplicatedStorage.Shared` |
+    | `Types.luau` | `ExampleService` | `ExampleServiceTypes` | `ReplicatedStorage.Shared` |
+
+    The destination is controlled separately by the `isServer` check — only `Server.luau` contains `"server"` in its name, so only it routes to `ServerScriptService`.
+  </Tab>
+  <Tab title="init.luau">
+    `init.luau` is handled as a special promotion case. The **parent folder** itself becomes the Roblox instance, with `$path` pointing at the folder (not the file). Rojo resolves the `init.luau` inside that folder automatically.
+
+    | File | Roblox instance name | `$path` value |
+    |------|----------------------|---------------|
+    | `src/services/ExampleService/init.luau` | `ExampleService` | `src/services/ExampleService` |
+
+    All sibling files in the same folder are suppressed — they are not added to the tree as separate entries.
+
+    <Warning>
+      When you add `init.luau` to a folder, any other `.luau` files in that same folder will be ignored by the generator. Move shared utilities to a subfolder if you need them exposed separately.
+    </Warning>
+  </Tab>
+  <Tab title="Other names">
+    Any file whose base name does not match a reserved word and is not `init` is kept as-is. The destination is still decided by whether `"server"` appears anywhere in the name.
+
+    | File | Roblox instance name | Destination |
+    |------|----------------------|-------------|
+    | `DataStore.luau` | `DataStore` | `ReplicatedStorage.Shared` |
+    | `PlayerServer.luau` | `PlayerServer` | `ServerScriptService` |
+    | `AnimationHelper.luau` | `AnimationHelper` | `ReplicatedStorage.Shared` |
+
+    <Tip>
+      Avoid placing two files with the same resolved name under the same parent in the tree. The second write will silently overwrite the first in the generated JSON.
+    </Tip>
+  </Tab>
+</Tabs>
+
+## End-to-end examples
+
+The `src/services/ExampleService/` directory included in the repo demonstrates all three non-init reserved names:
+
+```
+src/
+└── services/
+    └── ExampleService/
+        ├── Server.luau   → ServerScriptService.Services.ExampleService.ExampleServiceServer
+        ├── Client.luau   → ReplicatedStorage.Shared.Services.ExampleService.ExampleServiceClient
+        └── Utils.luau    → ReplicatedStorage.Shared.Services.ExampleService.ExampleServiceUtils
+```
+
+The corresponding section of the generated `default.project.json`:
+
+```json default.project.json
+"ReplicatedStorage": {
+  "Shared": {
+    "Services": {
+      "ExampleService": {
+        "ExampleServiceClient": {
+          "$path": "src/services/ExampleService/Client.luau"
+        },
+        "ExampleServiceUtils": {
+          "$path": "src/services/ExampleService/Utils.luau"
+        }
+      }
+    }
+  }
+},
+"ServerScriptService": {
+  "Services": {
+    "ExampleService": {
+      "ExampleServiceServer": {
+        "$path": "src/services/ExampleService/Server.luau"
+      }
+    }
+  }
+}
+```
+
+Notice that `ExampleService` appears as a `Folder` node in **both** `ReplicatedStorage.Shared.Services` and `ServerScriptService.Services` because the service has both shared and server-side scripts.
+
+## The `isServer` check in detail
+
+The server/shared split is decided by a single substring check on the resolved filename:
+
+```javascript genRojoTree.js
+const isServer = filename.toLowerCase().includes("server");
+```
+
+This means any file whose name contains the substring `"server"` — regardless of capitalisation or position — will be routed to `ServerScriptService`. The reserved name `Server` satisfies this, but so would names like `PlayerServerData.luau` or `serverConfig.luau`.
+
+<Info>
+  The check runs on the **base name without extension**, not on the full path. A file at `src/server/DataStore.luau` is routed to `ReplicatedStorage.Shared` because `"DataStore"` does not contain `"server"`.
+</Info>
+
+## PascalCase conversion
+
+`toPascalCase()` uppercases only the first character of a string:
+
+```javascript genRojoTree.js
+function toPascalCase(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+```
+
+This is applied to each folder segment when building the `folder` array, and to the reserved base name when constructing a compound instance name. Folder names that are already PascalCase (like `ExampleService`) are unchanged. Lowercase folder names like `services` become `Services`.
+
+<CardGroup cols={2}>
+  <Card title="How it works" icon="gear" href="/usage/how-it-works">
+    Follow the full pipeline from source walk to JSON output
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/usage/configuration">
+    Adjust the source root, blacklisted directories, and static tree entries
+  </Card>
+</CardGroup>

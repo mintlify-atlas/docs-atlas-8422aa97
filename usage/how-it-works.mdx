@@ -1,0 +1,204 @@
+---
+title: "How genRojoTree maps Luau files to Roblox services"
+description: "Learn how genRojoTree walks src/, resolves virtual paths for each .luau file, builds an in-memory tree, and writes default.project.json on every run."
+---
+
+genRojoTree processes your `src/` folder in a single pass: it recursively walks the directory, computes a virtual Roblox path for each `.luau` file, inserts that path into an in-memory tree object, and finally serializes the whole tree to `default.project.json`. Understanding each stage makes it straightforward to predict exactly where any given file will land in the Roblox service hierarchy.
+
+## The two-root system
+
+Before diving into the pipeline, it helps to know the two destinations that genRojoTree routes files into:
+
+- **`ServerScriptService`** — receives any file whose base name (without extension) contains `"server"` (case-insensitive). Scripts here run only on the server.
+- **`ReplicatedStorage.Shared`** — receives all other files. This includes client scripts, utility modules, and type definitions.
+
+The script exposes these as two root references that the walk callback writes into:
+
+```javascript genRojoTree.js
+const sharedRoot = tree.tree.ReplicatedStorage.Shared;
+const serverRoot = tree.tree.ServerScriptService;
+```
+
+Any file resolved to `target === "ServerScriptService"` is inserted under `serverRoot`; everything else goes under `sharedRoot`.
+
+## The full pipeline
+
+<Steps>
+
+  <Step title="walk() scans src/ recursively">
+    `walk(dir, callback)` reads every entry in the given directory. Directories are recursed into; files ending in `.luau` are passed to the callback. Directories listed in `BLACKLISTED_DIRS` are skipped entirely.
+
+    ```javascript genRojoTree.js
+    function walk(dir, callback) {
+      if (BLACKLISTED_DIRS.includes(toPosix(dir))) return;
+
+      fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full, callback);
+        } else if (entry.isFile() && entry.name.endsWith(".luau")) {
+          callback(full);
+        }
+      });
+    }
+    ```
+
+    The walk is invoked once at the top level:
+
+    ```javascript genRojoTree.js
+    walk(BASE_PATH, (filepath) => { /* ... */ });
+    ```
+  </Step>
+
+  <Step title="getVirtualPath() maps each file to a Roblox location">
+    For every `.luau` file the walk finds, `getVirtualPath(filepath)` computes five values:
+
+    | Field | Description |
+    |-------|-------------|
+    | `isInit` | `true` when the file is `init.luau` |
+    | `target` | `"ServerScriptService"` or `"ReplicatedStorage"` |
+    | `folder` | Array of PascalCase path segments above the file |
+    | `name` | The Roblox instance name for this script |
+    | `file` | The `$path` value written into the project JSON |
+
+    The `target` is set by checking whether the filename (without extension) contains `"server"`:
+
+    ```javascript genRojoTree.js
+    const filename = path.basename(filepath, ".luau");
+    const isServer = filename.toLowerCase().includes("server");
+    // ...
+    target: isServer ? "ServerScriptService" : "ReplicatedStorage",
+    ```
+
+    The `name` is derived from the filename and its immediate parent folder:
+
+    ```javascript genRojoTree.js
+    const folderName = parts.length > 1 ? toPascalCase(parts[parts.length - 2]) : "";
+    let name;
+
+    if (filename === "init") {
+      name = folderName;
+    } else if (["server", "client", "utils", "types"].includes(filename.toLowerCase())) {
+      name = folderName + toPascalCase(filename);
+    } else {
+      name = filename;
+    }
+    ```
+
+    **Example** — `src/services/ExampleService/Server.luau`:
+    - `filename` → `"Server"`, `isServer` → `true`
+    - `folderName` → `"ExampleService"`
+    - `name` → `"ExampleServiceServer"`
+    - `target` → `"ServerScriptService"`
+    - `file` → `"src/services/ExampleService/Server.luau"`
+  </Step>
+
+  <Step title="init.luau promotion claims the parent folder">
+    When `getVirtualPath` returns `isInit: true`, the walk callback promotes the parent folder to a `ModuleScript` by pointing `$path` at the folder itself (not the file). Rojo treats a folder with an `init.luau` as a single module.
+
+    ```javascript genRojoTree.js
+    if (isInit) {
+      const parent = folder.slice(0, -1).reduce((acc, part) => {
+        if (!acc[part]) acc[part] = { $className: "Folder" };
+        return acc[part];
+      }, root);
+
+      parent[name] = { $path: file };
+      initClaimedFolders.add(fullFolderKey);
+      return;
+    }
+    ```
+
+    The folder key (e.g. `"services/ExampleService"`) is added to the `initClaimedFolders` Set so that sibling files in the same folder are not double-registered.
+
+    <Note>
+      When `init.luau` is present, `$path` points to the parent **folder** (e.g. `"src/services/ExampleService"`), not to the `.luau` file itself. Rojo resolves the folder's `init.luau` automatically.
+    </Note>
+  </Step>
+
+  <Step title="initClaimedFolders prevents double-registration">
+    After the `init.luau` branch runs, any other file in the same folder would produce a duplicate entry in the tree. The guard at the top of the callback skips those files:
+
+    ```javascript genRojoTree.js
+    if (initClaimedFolders.has(fullFolderKey)) return;
+    ```
+
+    `fullFolderKey` is built from the `folder` array joined with `"/"`, so `["services", "ExampleService"]` produces `"services/ExampleService"`. Any sibling of `init.luau` sharing that key is silently skipped.
+  </Step>
+
+  <Step title="Folder nodes are created on demand">
+    For files that are not `init.luau`, the callback walks down the `folder` array, creating `{ $className: "Folder" }` nodes as needed, then attaches the `$path` entry at the leaf:
+
+    ```javascript genRojoTree.js
+    let current = root;
+    for (const part of folder) {
+      if (!current[part]) current[part] = { $className: "Folder" };
+      current = current[part];
+    }
+
+    current[name] = { $path: file };
+    ```
+
+    This means folder nodes in the generated JSON only appear when at least one file underneath them exists.
+  </Step>
+
+  <Step title="The tree is written to default.project.json">
+    After the walk completes, the entire `tree` object is serialized and written to disk:
+
+    ```javascript genRojoTree.js
+    fs.writeFileSync("default.project.json", JSON.stringify(tree, null, 2));
+    console.log("✅ default.project.json generated.");
+    ```
+
+    The file is always written from scratch — there is no diffing or merging with a previous version. The static skeleton (startup scripts, `Packages`, `UI`) is baked into the initial `tree` constant, so those entries are always present regardless of what the walk finds.
+  </Step>
+
+</Steps>
+
+## What the static skeleton provides
+
+The `tree` constant is pre-populated before the walk runs. It defines the fixed structure that every generated project file contains:
+
+```javascript genRojoTree.js
+const tree = {
+  name: "genrojotree",
+  tree: {
+    $className: "DataModel",
+
+    ReplicatedStorage: {
+      Shared: {
+        $className: "Folder",
+        Services: { $className: "Folder" },
+        Classes:  { $className: "Folder" },
+        Modules:  { $className: "Folder" },
+      },
+      Packages: { $path: "Packages" },
+      UI:       { $path: "src/ui" },
+    },
+
+    ServerScriptService: {
+      Server:   { $path: "src/startup/Server.server.luau" },
+      Services: { $className: "Folder" },
+      Classes:  { $className: "Folder" },
+      Modules:  { $className: "Folder" },
+    },
+
+    StarterPlayer: {
+      StarterPlayerScripts: {
+        Client: { $path: "src/startup/Client.client.luau" },
+      },
+    },
+  },
+};
+```
+
+The walk populates the `Services`, `Classes`, and `Modules` folders dynamically; everything else is static.
+
+<CardGroup cols={2}>
+  <Card title="File conventions" icon="file-code" href="/usage/file-conventions">
+    Learn the naming rules that determine each file's Roblox instance name and destination
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/usage/configuration">
+    Change the source root, blacklist directories, and adjust the static tree skeleton
+  </Card>
+</CardGroup>

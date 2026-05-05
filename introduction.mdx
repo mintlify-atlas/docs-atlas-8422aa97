@@ -1,0 +1,45 @@
+---
+title: "genRojoTree: auto-generate Rojo project files from source"
+description: "genRojoTree reads your Luau source tree and writes default.project.json automatically, eliminating manual Rojo project file maintenance."
+---
+
+Maintaining a `default.project.json` by hand is tedious and error-prone. Every time you add, move, or rename a Luau script, you have to remember to update your Rojo project file — or your sync breaks. genRojoTree eliminates that toil by reading your `src/` folder directly and generating the file for you, using a set of predictable naming conventions to decide where each script belongs in the Roblox service tree.
+
+<Info>
+  genRojoTree is designed for use with **Rojo 7.5.1** (managed via [Rokit](https://github.com/rojo-rbx/rokit)) and requires **Node.js** to run.
+</Info>
+
+## What problem it solves
+
+Rojo maps filesystem paths to Roblox service locations through `default.project.json`. In a growing project, that file can easily have dozens of entries — and keeping it in sync with your `src/` folder is a constant maintenance burden.
+
+genRojoTree automates this by walking `src/` at build time, applying naming conventions to determine service targets (`ReplicatedStorage` vs `ServerScriptService`), and writing a fresh `default.project.json` on every run. The result is a project file that always reflects your actual source layout.
+
+## Key features
+
+- **Auto-generation** — run `npm run build:rojo` and `default.project.json` is recreated from scratch based on what is in `src/`.
+- **Naming conventions** — files containing `server` in their name route to `ServerScriptService`; all others go to `ReplicatedStorage.Shared`.
+- **`init.luau` promotion** — a folder containing `init.luau` is promoted to a module in-place, with its children suppressed to avoid duplication.
+- **Blacklist support** — directories like `src/ui` and `src/startup` are excluded from the walk and handled with static `$path` entries instead.
+- **Watch mode** — `npm run watch:rojo` uses `chokidar` to re-run generation whenever any file under `src/` changes.
+
+<Note>
+  genRojoTree outputs a single file: `default.project.json`. This file is what Rojo reads when you run `rojo serve` or `rojo build`.
+</Note>
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Clone the repo, install dependencies, and generate your first project file
+  </Card>
+  <Card title="How it works" icon="gear" href="/usage/how-it-works">
+    Step through the source walk, virtual path resolution, and tree construction
+  </Card>
+  <Card title="File conventions" icon="file-code" href="/usage/file-conventions">
+    Learn the naming rules that control where your scripts are placed
+  </Card>
+  <Card title="Script reference" icon="book" href="/reference/script">
+    Full reference for every function and constant in genRojoTree.js
+  </Card>
+</CardGroup>

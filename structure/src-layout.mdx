@@ -1,0 +1,109 @@
+---
+title: "genRojoTree project source layout: services, startup, and ui"
+description: "A guide to the expected directory structure under src/ and how each folder maps to services, startup scripts, UI, classes, and modules in the Rojo tree."
+---
+
+genRojoTree reads your `src/` directory and builds a `default.project.json` that maps each file to the correct Roblox container. Some folders are processed dynamically — their contents are discovered at generation time — while others are hardcoded into the static tree and skipped during the directory walk.
+
+## Directory overview
+
+The full layout of a typical genRojoTree project looks like this:
+
+```bash
+src/
+├── services/          # Service modules (Server / Client / Utils split)
+│   └── ExampleService/
+│       ├── Server.luau
+│       ├── Client.luau
+│       └── Utils.luau
+├── startup/           # Entry-point scripts (hardcoded, not auto-generated)
+│   ├── Server.server.luau
+│   └── Client.client.luau
+├── ui/                # UI components (hardcoded at ReplicatedStorage.UI)
+│   └── ...
+├── classes/           # Class modules → Shared.Classes or ServerScriptService.Classes
+│   └── ...
+└── modules/           # Utility modules → Shared.Modules or ServerScriptService.Modules
+    └── ...
+Packages/              # Wally package directory → ReplicatedStorage.Packages
+```
+
+## Static pre-wired entries
+
+Several paths are written directly into the base tree object inside `genRojoTree.js` and are always present in the output, regardless of what files exist on disk.
+
+| Roblox path | Source path | Type |
+|---|---|---|
+| `ServerScriptService.Server` | `src/startup/Server.server.luau` | Script |
+| `StarterPlayer.StarterPlayerScripts.Client` | `src/startup/Client.client.luau` | LocalScript |
+| `ReplicatedStorage.UI` | `src/ui` | Folder (`$path`) |
+| `ReplicatedStorage.Packages` | `Packages` | Folder (`$path`) |
+| `ReplicatedStorage.Shared.Services` | — | Empty Folder |
+| `ReplicatedStorage.Shared.Classes` | — | Empty Folder |
+| `ReplicatedStorage.Shared.Modules` | — | Empty Folder |
+| `ServerScriptService.Services` | — | Empty Folder |
+| `ServerScriptService.Classes` | — | Empty Folder |
+| `ServerScriptService.Modules` | — | Empty Folder |
+
+The dynamic walk populates the `Services`, `Classes`, and `Modules` folders for both `ServerScriptService` and `ReplicatedStorage.Shared` based on the files it finds under `src/`.
+
+## The startup/ directory
+
+`src/startup/` holds the two root entry-point scripts for your game. They are referenced directly in the static tree and are excluded from the auto-generation walk.
+
+```json
+"ServerScriptService": {
+  "Server": { "$path": "src/startup/Server.server.luau" }
+},
+"StarterPlayer": {
+  "StarterPlayerScripts": {
+    "Client": { "$path": "src/startup/Client.client.luau" }
+  }
+}
+```
+
+These scripts are where you require and initialise each service at runtime. They are the single server and client entry points for the whole project.
+
+<Note>
+  `src/startup/` is blacklisted from the directory walk. Adding extra files
+  inside it will not create new entries in `default.project.json`. Place entry
+  points here only; all other logic belongs in `src/services/`.
+</Note>
+
+## The ui/ directory
+
+`src/ui/` is also blacklisted from the walk and is mapped as a single `$path` entry:
+
+```json
+"ReplicatedStorage": {
+  "UI": { "$path": "src/ui" }
+}
+```
+
+Rojo will sync the entire `src/ui/` subtree into `ReplicatedStorage.UI` as-is, so you can organise UI components however you like inside that folder without any genRojoTree configuration.
+
+## The services/ directory
+
+`src/services/` is the primary location for game logic. Each sub-folder represents one service, and the files inside follow the `Server.luau` / `Client.luau` / `Utils.luau` naming convention.
+
+- Files whose names contain `server` are placed under `ServerScriptService.Services`.
+- All other files (client, utils, types) go to `ReplicatedStorage.Shared.Services`.
+
+See [The server/client/utils service pattern](/structure/services-pattern) for full details.
+
+## The classes/ and modules/ directories
+
+`src/classes/` and `src/modules/` follow the same routing rules as services:
+
+- Files with `server` in the name → `ServerScriptService.Classes` or `ServerScriptService.Modules`
+- All other files → `ReplicatedStorage.Shared.Classes` or `ReplicatedStorage.Shared.Modules`
+
+<Tip>
+  If a class or module needs its own sub-modules, create an `init.luau` file
+  inside its folder. genRojoTree will promote the folder to a `$path` entry and
+  skip processing individual children, letting Rojo handle the subtree directly.
+</Tip>
+
+## The Packages/ directory
+
+`Packages/` lives at the project root (not inside `src/`) and is mapped to `ReplicatedStorage.Packages`. This is the conventional output directory used by [Wally](https://wally.run), the Roblox package manager. Install packages with Wally and they will automatically be available at `ReplicatedStorage.Packages` in-game without any additional configuration.
